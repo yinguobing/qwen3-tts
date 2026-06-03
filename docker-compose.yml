@@ -1,0 +1,27 @@
+services:
+  qwen3-tts:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: qwen3-tts:local
+    container_name: qwen3-tts
+    ports:
+      - "${QWEN3_TTS_PORT:-8001}:8001"
+    environment:
+      QWEN3_TTS_MODEL_PATH: "${QWEN3_TTS_MODEL_PATH:-/data/models/qwen3-tts-1.7b-customvoice}"
+      QWEN3_TTS_DEVICE: "${QWEN3_TTS_DEVICE:-cuda:0}"
+    volumes:
+      - /data/models:/data/models:ro          # 模型文件（只读）
+      - qwen3-tts-cache:/root/.cache           # HuggingFace 缓存
+    shm_size: "2gb"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu ]
+    restart: unless-stopped
+
+volumes:
+  qwen3-tts-cache:
