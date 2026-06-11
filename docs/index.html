@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Qwen3 TTS — 自定义语音合成服务</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700;900&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-deep: #0a0a0b;
+    --bg-surface: #111114;
+    --bg-card: #16161a;
+    --text-primary: #e8e6e3;
+    --text-secondary: #989691;
+    --text-muted: #5c5a56;
+    --accent: #d4a853;
+    --accent-glow: rgba(212, 168, 83, 0.18);
+    --accent-dim: #8b6914;
+    --border: #222225;
+    --border-subtle: #1a1a1e;
+    --radius: 6px;
+    --radius-lg: 12px;
+    --font-display: 'Noto Serif SC', serif;
+    --font-body: 'Noto Sans SC', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg-deep);
+    color: var(--text-primary);
+    font-family: var(--font-body);
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  /* ── Wave background texture ── */
+  .bg-texture {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg width='1200' height='800' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23d4a853'/%3E%3Cstop offset='100%25' stop-color='transparent'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M0 400 Q150 200 300 350 T600 300 T900 380 T1200 320' fill='none' stroke='url(%23g)' stroke-width='2'/%3E%3Cpath d='M0 450 Q150 250 300 400 T600 350 T900 430 T1200 370' fill='none' stroke='url(%23g)' stroke-width='1.5'/%3E%3Cpath d='M0 500 Q150 300 300 450 T600 400 T900 480 T1200 420' fill='none' stroke='url(%23g)' stroke-width='1'/%3E%3Cpath d='M0 350 Q150 150 300 300 T600 250 T900 330 T1200 270' fill='none' stroke='url(%23g)' stroke-width='0.8'/%3E%3Cpath d='M0 550 Q150 350 300 500 T600 450 T900 530 T1200 470' fill='none' stroke='url(%23g)' stroke-width='0.6'/%3E%3C/svg%3E");
+    background-size: cover;
+  }
+
+  /* ── Animated waveform ── */
+  .hero-wave {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%; overflow: hidden; z-index: 0; pointer-events: none;
+  }
+  .hero-wave svg { position: absolute; bottom: -2px; width: 200%; height: 280px; }
+  .hero-wave .w1 { animation: drift 18s linear infinite; opacity: 0.06; left: 0; }
+  .hero-wave .w2 { animation: drift 22s linear infinite reverse; opacity: 0.04; left: -50%; }
+  .hero-wave .w3 { animation: drift 26s linear infinite; opacity: 0.03; left: -100%; }
+
+  @keyframes drift {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
+  }
+
+  /* ── Layout ── */
+  .container { max-width: 900px; margin: 0 auto; padding: 0 32px; position: relative; z-index: 1; }
+
+  /* ── Hero ── */
+  .hero {
+    position: relative; min-height: 92vh; display: flex; flex-direction: column; justify-content: center;
+    border-bottom: 1px solid var(--border); overflow: hidden;
+    background: radial-gradient(ellipse 80% 60% at 50% 30%, rgba(212,168,83,0.04) 0%, transparent 70%),
+                linear-gradient(180deg, var(--bg-deep) 0%, #0d0d10 100%);
+  }
+
+  .hero-badge {
+    display: inline-block; font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.2em;
+    color: var(--accent); text-transform: uppercase; border: 1px solid var(--accent-dim);
+    padding: 6px 16px; border-radius: 100px; margin-bottom: 40px;
+    animation: fadeInUp 0.8s ease-out both;
+    background: rgba(212,168,83,0.04);
+  }
+
+  .hero h1 {
+    font-family: var(--font-display); font-size: clamp(2.8rem, 6vw, 4.8rem); font-weight: 900;
+    line-height: 1.15; letter-spacing: -0.02em; color: #f0ede8;
+    animation: fadeInUp 0.8s 0.1s ease-out both;
+  }
+  .hero h1 span { color: var(--accent); }
+
+  .hero-desc {
+    font-size: 1.15rem; color: var(--text-secondary); max-width: 540px; margin-top: 24px;
+    line-height: 1.8; animation: fadeInUp 0.8s 0.2s ease-out both;
+    font-weight: 300;
+  }
+
+  .hero-actions {
+    display: flex; gap: 14px; margin-top: 40px; flex-wrap: wrap;
+    animation: fadeInUp 0.8s 0.3s ease-out both;
+  }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px; padding: 13px 28px;
+    font-family: var(--font-body); font-size: 0.9rem; font-weight: 500; text-decoration: none;
+    border-radius: var(--radius); transition: all 0.25s ease; cursor: pointer; border: none;
+  }
+  .btn-primary {
+    background: var(--accent); color: #0a0a0b;
+    box-shadow: 0 0 40px rgba(212,168,83,0.15), 0 2px 8px rgba(0,0,0,0.3);
+  }
+  .btn-primary:hover { background: #e0b85e; transform: translateY(-1px); box-shadow: 0 0 60px rgba(212,168,83,0.25), 0 4px 16px rgba(0,0,0,0.4); }
+
+  .btn-secondary {
+    background: transparent; color: var(--text-primary); border: 1px solid var(--border);
+  }
+  .btn-secondary:hover { border-color: var(--text-muted); background: rgba(255,255,255,0.02); }
+
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── Sections ── */
+  section { padding: 100px 0; border-bottom: 1px solid var(--border); }
+  section:last-of-type { border-bottom: none; }
+
+  .section-label {
+    font-family: var(--font-mono); font-size: 0.65rem; letter-spacing: 0.25em; color: var(--accent);
+    text-transform: uppercase; margin-bottom: 16px;
+  }
+
+  .section-title {
+    font-family: var(--font-display); font-size: clamp(1.6rem, 3vw, 2.2rem); font-weight: 700;
+    line-height: 1.3; color: #f0ede8; margin-bottom: 16px; letter-spacing: -0.01em;
+  }
+
+  .section-desc {
+    color: var(--text-secondary); font-size: 0.95rem; max-width: 580px; line-height: 1.8; margin-bottom: 48px;
+    font-weight: 300;
+  }
+
+  /* ── Feature cards ── */
+  .features-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1px;
+    background: var(--border); border-radius: var(--radius-lg); overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .feature-card {
+    background: var(--bg-card); padding: 36px 32px; transition: background 0.3s ease;
+  }
+  .feature-card:hover { background: #1a1a20; }
+  .feature-icon {
+    width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;
+    border-radius: var(--radius); background: rgba(212,168,83,0.08); margin-bottom: 20px;
+    color: var(--accent);
+  }
+  .feature-card h3 {
+    font-family: var(--font-display); font-size: 1.05rem; font-weight: 600; margin-bottom: 8px; color: #e0ded9;
+  }
+  .feature-card p { color: var(--text-secondary); font-size: 0.88rem; line-height: 1.7; font-weight: 300; }
+
+  /* ── Code blocks ── */
+  .code-block {
+    background: #08080a; border: 1px solid var(--border); border-radius: var(--radius-lg);
+    overflow: hidden; margin-bottom: 28px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+  }
+  .code-block-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 20px; background: #0e0e12; border-bottom: 1px solid var(--border-subtle);
+    font-family: var(--font-mono); font-size: 0.7rem; color: var(--text-muted);
+    letter-spacing: 0.06em;
+  }
+  .code-block-header .method {
+    padding: 2px 8px; border-radius: 3px; font-size: 0.65rem; font-weight: 500;
+  }
+  .method.get { background: rgba(100,180,120,0.12); color: #78c878; }
+  .method.post { background: rgba(212,168,83,0.12); color: var(--accent); }
+  .code-block pre {
+    padding: 24px; margin: 0; overflow-x: auto;
+    font-family: var(--font-mono); font-size: 0.8rem; line-height: 1.7;
+    color: #c8c6c0;
+  }
+  .code-block pre .k { color: #cc9966; }  /* keyword */
+  .code-block pre .s { color: #7ec87e; }  /* string */
+  .code-block pre .c { color: #5c5a56; }  /* comment */
+  .code-block pre .u { color: #cc9966; }  /* url */
+  .code-block pre .hl { color: var(--accent); }
+
+  /* ── Endpoint list ── */
+  .endpoint-list { display: flex; flex-direction: column; gap: 16px; }
+  .endpoint-item {
+    display: flex; align-items: center; gap: 16px; padding: 20px 24px;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+    transition: border-color 0.25s ease, background 0.25s ease; text-decoration: none; color: inherit;
+  }
+  .endpoint-item:hover { border-color: var(--text-muted); background: #1a1a20; }
+  .endpoint-method {
+    font-family: var(--font-mono); font-size: 0.65rem; font-weight: 500; letter-spacing: 0.08em;
+    padding: 4px 10px; border-radius: 4px; min-width: 50px; text-align: center;
+  }
+  .endpoint-method.get { background: rgba(100,180,120,0.12); color: #78c878; }
+  .endpoint-method.post { background: rgba(212,168,83,0.12); color: var(--accent); }
+  .endpoint-path { font-family: var(--font-mono); font-size: 0.85rem; color: #e0ded9; }
+  .endpoint-label { font-size: 0.8rem; color: var(--text-muted); margin-left: auto; font-weight: 300; }
+
+  /* ── Config table ── */
+  .config-table {
+    width: 100%; border-collapse: collapse; font-size: 0.88rem;
+    border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden;
+    display: block;
+  }
+  .config-table thead { background: #0e0e12; }
+  .config-table th {
+    text-align: left; padding: 14px 20px; font-family: var(--font-mono); font-size: 0.65rem;
+    letter-spacing: 0.08em; color: var(--text-muted); font-weight: 500; text-transform: uppercase;
+  }
+  .config-table td {
+    padding: 12px 20px; border-top: 1px solid var(--border-subtle);
+    font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-secondary);
+  }
+  .config-table td:first-child { color: #e0ded9; }
+  .config-table tbody tr:hover { background: rgba(255,255,255,0.008); }
+
+  /* ── Parameter grid ── */
+  .params-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;
+  }
+  .param-item {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 18px 20px; display: flex; flex-direction: column; gap: 4px;
+  }
+  .param-item .param-name {
+    font-family: var(--font-mono); font-size: 0.8rem; color: #e0ded9;
+  }
+  .param-item .param-type {
+    font-family: var(--font-mono); font-size: 0.65rem; color: var(--accent-dim);
+  }
+  .param-item .param-desc {
+    font-size: 0.82rem; color: var(--text-muted); margin-top: 4px; font-weight: 300;
+  }
+
+  /* ── Footer ── */
+  .footer {
+    padding: 60px 0; text-align: center; border-top: 1px solid var(--border);
+    color: var(--text-muted); font-size: 0.8rem;
+  }
+  .footer a { color: var(--accent); text-decoration: none; }
+  .footer a:hover { text-decoration: underline; }
+
+  /* ── Scroll-reveal ── */
+  .reveal {
+    opacity: 0; transform: translateY(28px); transition: opacity 0.7s ease-out, transform 0.7s ease-out;
+  }
+  .reveal.visible { opacity: 1; transform: translateY(0); }
+
+  /* ── Glow orbs ── */
+  .glow-orb {
+    position: absolute; border-radius: 50%; filter: blur(120px); pointer-events: none; z-index: 0;
+  }
+  .glow-orb.top-right {
+    width: 500px; height: 500px; top: -250px; right: -200px;
+    background: rgba(212,168,83,0.03);
+  }
+  .glow-orb.mid-left {
+    width: 400px; height: 400px; top: 50%; left: -200px;
+    background: rgba(212,168,83,0.02);
+  }
+
+  @media (max-width: 640px) {
+    .container { padding: 0 20px; }
+    section { padding: 64px 0; }
+    .hero { min-height: 80vh; }
+    .hero-actions { flex-direction: column; }
+    .btn { justify-content: center; }
+    .code-block pre { font-size: 0.7rem; padding: 16px; }
+    .endpoint-item { flex-wrap: wrap; gap: 8px; }
+    .endpoint-label { margin-left: 0; width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<div class="bg-texture"></div>
+
+<!-- ════════ Hero ════════ -->
+<header class="hero">
+  <div class="hero-wave">
+    <svg class="w1" viewBox="0 0 2400 200" preserveAspectRatio="none">
+      <path d="M0 100 Q150 40 300 90 T600 80 T900 110 T1200 70 T1500 120 T1800 60 T2100 100 T2400 80 L2400 200 L0 200 Z" fill="rgba(212,168,83,0.08)"/>
+    </svg>
+    <svg class="w2" viewBox="0 0 2400 200" preserveAspectRatio="none">
+      <path d="M0 140 Q200 80 400 120 T800 100 T1200 140 T1600 90 T2000 130 T2400 100 L2400 200 L0 200 Z" fill="rgba(212,168,83,0.05)"/>
+    </svg>
+    <svg class="w3" viewBox="0 0 2400 200" preserveAspectRatio="none">
+      <path d="M0 120 Q180 160 360 100 T720 140 T1080 80 T1440 130 T1800 100 T2160 140 T2400 110 L2400 200 L0 200 Z" fill="rgba(212,168,83,0.04)"/>
+    </svg>
+  </div>
+  <div class="glow-orb top-right"></div>
+  <div class="container" style="position:relative;z-index:1;">
+    <div class="hero-badge">Qwen3 TTS 1.7B</div>
+    <h1><span>Qwen3</span> 自定义语音合成</h1>
+    <p class="hero-desc">
+      基于 Qwen3 TTS 1.7B 模型的 OpenAI 兼容语音合成 API 服务。支持自定义音色、精细化参数控制，Docker 一键部署，为您的应用赋予自然流畅的语音表达能力。
+    </p>
+    <div class="hero-actions">
+      <a href="#quickstart" class="btn btn-primary">快速开始</a>
+      <a href="#api" class="btn btn-secondary">API 文档</a>
+    </div>
+  </div>
+</header>
+
+<main>
+  <!-- ════════ 功能特性 ════════ -->
+  <section id="features">
+    <div class="container">
+      <div class="section-label reveal">功能特性</div>
+      <h2 class="section-title reveal">为语音合成而生的服务端方案</h2>
+      <p class="section-desc reveal">
+        从模型加载到音频输出，每一步都经过精心设计，确保稳定、高效、易于集成。
+      </p>
+      <div class="features-grid reveal">
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          </div>
+          <h3>OpenAI 兼容接口</h3>
+          <p>完全兼容 /v1/audio/speech 端点，可直接替换 OpenAI TTS，无需修改现有代码。</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          <h3>异步非阻塞推理</h3>
+          <p>推理任务在线程池中执行，异步事件循环保持响应，健康检查永不阻塞。</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+          </div>
+          <h3>Docker 多阶段构建</h3>
+          <p>编译阶段与运行阶段分离，最终镜像精简高效，内置健康检查与 GPU 支持。</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </div>
+          <h3>精细化参数控制</h3>
+          <p>支持 temperature、top_p、top_k、repetition_penalty 等参数，并可独立调节 Subtalker 子模型行为。</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          </div>
+          <h3>WAV / MP3 双格式</h3>
+          <p>通过 response_format 参数在 WAV 和 MP3 之间自由切换，满足不同场景需求。</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </div>
+          <h3>超时保护</h3>
+          <p>可配置推理超时和最大 Token 数，防止异常请求占用 GPU 资源，保障服务稳定性。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════════ 快速开始 ════════ -->
+  <section id="quickstart">
+    <div class="container">
+      <div class="section-label reveal">快速开始</div>
+      <h2 class="section-title reveal">Docker 一键部署</h2>
+      <p class="section-desc reveal">
+        只需准备模型文件，一条命令即可启动完整的 TTS 服务。
+      </p>
+
+      <div class="code-block reveal">
+        <div class="code-block-header">
+          <span>shell</span>
+          <span style="color:var(--text-muted)">设置模型路径并启动</span>
+        </div>
+        <pre><span class="c"># 指定模型路径（如使用非默认路径）</span>
+<span class="k">export</span> QWEN3_TTS_MODEL_PATH=/path/to/qwen3-tts-1.7b-customvoice
+
+<span class="c"># 构建并启动</span>
+docker compose up -d
+
+<span class="c"># 验证服务状态</span>
+curl http://localhost:8001/health</pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════════ API 端点 ════════ -->
+  <section id="api">
+    <div class="container">
+      <div class="section-label reveal">API 参考</div>
+      <h2 class="section-title reveal">接口端点</h2>
+      <p class="section-desc reveal">
+        提供两个语音合成端点和一个健康检查端点，兼容 OpenAI SDK。
+      </p>
+
+      <div class="endpoint-list reveal">
+        <div class="endpoint-item">
+          <span class="endpoint-method get">GET</span>
+          <span class="endpoint-path">/health</span>
+          <span class="endpoint-label">健康检查，始终即时响应</span>
+        </div>
+        <div class="endpoint-item">
+          <span class="endpoint-method post">POST</span>
+          <span class="endpoint-path">/v1/audio/speech</span>
+          <span class="endpoint-label">OpenAI 兼容语音合成</span>
+        </div>
+        <div class="endpoint-item">
+          <span class="endpoint-method post">POST</span>
+          <span class="endpoint-path">/v1/audio/tts</span>
+          <span class="endpoint-label">简化接口，支持服务端保存</span>
+        </div>
+      </div>
+
+      <h3 style="font-family:var(--font-display);font-size:1.1rem;margin-top:56px;margin-bottom:20px;color:#d0cec9;" class="reveal">
+        POST /v1/audio/speech 请求示例
+      </h3>
+      <div class="code-block reveal">
+        <div class="code-block-header">
+          <span><span class="method post">POST</span> /v1/audio/speech</span>
+          <span style="color:var(--text-muted)">curl</span>
+        </div>
+        <pre>curl -X POST http://localhost:8001/v1/audio/speech \
+  -H <span class="s">"Content-Type: application/json"</span> \
+  -d <span class="s">'{
+    "input": "你好，欢迎使用 Qwen3 语音合成服务。",
+    "voice": "Vivian",
+    "response_format": "mp3"
+  }'</span> \
+  --output speech.mp3</pre>
+      </div>
+
+      <div class="code-block reveal">
+        <div class="code-block-header">
+          <span><span class="method post">POST</span> /v1/audio/speech</span>
+          <span style="color:var(--text-muted)">Python SDK</span>
+        </div>
+        <pre><span class="k">from</span> openai <span class="k">import</span> OpenAI
+
+client = OpenAI(
+    base_url=<span class="s">"http://localhost:8001/v1"</span>,
+    api_key=<span class="s">"not-needed"</span>
+)
+
+<span class="k">with</span> client.audio.speech.with_streaming_response.create(
+    model=<span class="s">"qwen3-tts-1.7b-customvoice"</span>,
+    voice=<span class="s">"Vivian"</span>,
+    input=<span class="s">"你好，这是一段测试语音。"</span>,
+) <span class="k">as</span> response:
+    response.stream_to_file(<span class="s">"output.wav"</span>)</pre>
+      </div>
+
+      <h3 style="font-family:var(--font-display);font-size:1.1rem;margin-top:56px;margin-bottom:20px;color:#d0cec9;" class="reveal">
+        生成参数一览
+      </h3>
+      <div class="params-grid reveal">
+        <div class="param-item">
+          <span class="param-name">input <span class="param-type">string</span></span>
+          <span class="param-desc">需要合成语音的文本内容</span>
+        </div>
+        <div class="param-item">
+          <span class="param-name">voice <span class="param-type">string</span></span>
+          <span class="param-desc">说话人名称，默认 "Vivian"</span>
+        </div>
+        <div class="param-item">
+          <span class="param-name">response_format <span class="param-type">string</span></span>
+          <span class="param-desc">音频格式，支持 "wav" 或 "mp3"</span>
+        </div>
+        <div class="param-item">
+          <span class="param-name">temperature <span class="param-type">float</span></span>
+          <span class="param-desc">采样温度，默认 0.2</span>
+        </div>
+        <div class="param-item">
+          <span class="param-name">top_p <span class="param-type">float</span></span>
+          <span class="param-desc">Nucleus 采样阈值，默认 0.6</span>
+        </div>
+        <div class="param-item">
+          <span class="param-name">top_k <span class="param-type">int</span></span>
+          <span class="param-desc">Top-K 采样，默认 15</span>
+        </div>
+        <div class="param-item">
+          <span class="param-name">repetition_penalty <span class="param-type">float</span></span>
+          <span class="param-desc">重复惩罚系数，默认 1.1</span>
+        </div>
+        <div class="param-item">
+          <span class="param-name">seed <span class="param-type">int</span></span>
+          <span class="param-desc">随机种子，不传则自动生成</span>
+        </div>
+        <div class="param-item">
+          <span class="param-name">instruct <span class="param-type">string</span></span>
+          <span class="param-desc">模型指令提示，可选</span>
+        </div>
+        <div class="param-item">
+          <span class="param-name">subtalker_temperature <span class="param-type">float</span></span>
+          <span class="param-desc">Subtalker 子模型温度，可选</span>
+        </div>
+        <div class="param-item">
+          <span class="param-name">subtalker_top_p <span class="param-type">float</span></span>
+          <span class="param-desc">Subtalker 子模型 top_p，可选</span>
+        </div>
+        <div class="param-item">
+          <span class="param-name">subtalker_top_k <span class="param-type">int</span></span>
+          <span class="param-desc">Subtalker 子模型 top_k，可选</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════════ 配置 ════════ -->
+  <section id="config">
+    <div class="container">
+      <div class="section-label reveal">配置参考</div>
+      <h2 class="section-title reveal">环境变量与启动参数</h2>
+      <p class="section-desc reveal">
+        所有配置项均可通过环境变量或命令行参数设定，灵活适配不同部署环境。
+      </p>
+
+      <h3 style="font-family:var(--font-display);font-size:1.05rem;margin-bottom:16px;color:#d0cec9;" class="reveal">环境变量</h3>
+      <div style="overflow-x:auto;" class="reveal">
+        <table class="config-table">
+          <thead>
+            <tr><th>变量名</th><th>默认值</th><th>说明</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>QWEN3_TTS_MODEL_PATH</td><td>/data/models/qwen3-tts-1.7b-customvoice</td><td>模型权重路径</td></tr>
+            <tr><td>QWEN3_TTS_DEVICE</td><td>cuda:0</td><td>PyTorch 推理设备</td></tr>
+            <tr><td>QWEN3_TTS_PORT</td><td>8001</td><td>对外暴露端口</td></tr>
+            <tr><td>QWEN3_TTS_TIMEOUT</td><td>120</td><td>单次推理超时秒数</td></tr>
+            <tr><td>QWEN3_TTS_MAX_TOKENS</td><td>3072</td><td>单次生成最大 Token 数</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3 style="font-family:var(--font-display);font-size:1.05rem;margin-top:48px;margin-bottom:16px;color:#d0cec9;" class="reveal">命令行参数</h3>
+      <div class="code-block reveal">
+        <div class="code-block-header"><span>shell</span></div>
+        <pre>python qwen3-tts-server.py \
+  --host 0.0.0.0 \
+  --port 8001 \
+  --device cuda:0 \
+  --workers 1</pre>
+      </div>
+
+      <div style="overflow-x:auto;margin-top:20px;" class="reveal">
+        <table class="config-table">
+          <thead>
+            <tr><th>参数</th><th>默认值</th><th>说明</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>--host</td><td>0.0.0.0</td><td>绑定地址</td></tr>
+            <tr><td>--port</td><td>8001</td><td>监听端口</td></tr>
+            <tr><td>--device</td><td>cuda:0</td><td>推理设备</td></tr>
+            <tr><td>--workers</td><td>1</td><td>Uvicorn worker 数量（推理使用独立线程池）</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════════ Docker ════════ -->
+  <section id="docker">
+    <div class="container">
+      <div class="section-label reveal">Docker</div>
+      <h2 class="section-title reveal">镜像构建与运行</h2>
+      <p class="section-desc reveal">
+        多阶段构建将编译工具链与运行时分离，最终镜像体积精简。
+      </p>
+
+      <div class="code-block reveal">
+        <div class="code-block-header">
+          <span>shell</span>
+          <span style="color:var(--text-muted)">独立构建（不使用 Compose）</span>
+        </div>
+        <pre>docker build -t qwen3-tts:local .
+docker run --gpus all \
+  -v /data/models:/data/models:ro \
+  -p 8001:8001 \
+  qwen3-tts:local</pre>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <div class="container">
+    <p style="margin-bottom:8px;">Qwen3 TTS API Server</p>
+    <p>基于 <a href="https://huggingface.co/Qwen/Qwen3-TTS-1.7B-CustomVoice" target="_blank" rel="noopener">Qwen3-TTS-1.7B-CustomVoice</a> 模型构建</p>
+  </div>
+</footer>
+
+<script>
+  // Scroll reveal
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+      }
+    });
+  }, { threshold: 0.15, rootMargin: '0px 0px -40px 0px' });
+
+  document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+</script>
+
+</body>
+</html>
